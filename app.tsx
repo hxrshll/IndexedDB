@@ -1,140 +1,115 @@
 import React, { useEffect, useState } from 'react';
-import { addFriend, getFriend, updateFriend, deleteFriend, findFriendsOverAge, Friend } from './db';
+import { addFriend, getFriend, updateFriend, deleteFriend, whenDatabaseReady, Friend } from './db';
 
 const App: React.FC = () => {
     const [friends, setFriends] = useState<Friend[]>([]);
     const [name, setName] = useState<string>('');
     const [age, setAge] = useState<number>(0);
-    const [idToGet, setIdToGet] = useState<number>(0);
-    const [idToDelete, setIdToDelete] = useState<number>(0);
-    const [minAge, setMinAge] = useState<number>(20);
+    const [id, setId] = useState<number>(0);
     const [error, setError] = useState<string | null>(null);
-    const [loading, setLoading] = useState<boolean>(false);
     const [databaseReady, setDatabaseReady] = useState<boolean>(false);
 
     useEffect(() => {
-        // Check for database readiness using the existing request
-        const request = indexedDB.open('MyDatabase', 1);
-
-        request.onsuccess = () => {
+        whenDatabaseReady().then(() => {
             setDatabaseReady(true);
-        };
-
-        request.onerror = () => {
-            console.error('Database failed to open.');
-        };
+            fetchAllFriends();
+        }).catch((error) => {
+            setError(error.message);
+        });
     }, []);
 
-    useEffect(() => {
-        if (databaseReady) {
-            setLoading(true);
-            findFriendsOverAge(minAge, (foundFriends: Friend[], err?: Error) => {
-                setLoading(false);
-                if (err) {
-                    setError(err.message);
-                } else {
-                    setFriends(foundFriends);
-                }
-            });
-        }
-    }, [minAge, databaseReady]);
+    const fetchAllFriends = () => {
+        if (!databaseReady) return; // Prevent fetching if database is not ready
+
+        const transaction = indexedDB.open('MyDatabase', 1).result.transaction('friends', 'readonly');
+        const friendStore = transaction.objectStore('friends');
+        const getAllRequest = friendStore.getAll();
+
+        getAllRequest.onsuccess = () => {
+            setFriends(getAllRequest.result);
+        };
+
+        getAllRequest.onerror = () => {
+            setError('Failed to fetch friends');
+        };
+    };
 
     const handleAddFriend = () => {
-        if (databaseReady && name && age) {
-            setLoading(true);
-            addFriend({ name, age }, (err?: Error) => {
-                setLoading(false);
-                if (err) {
-                    setError(err.message);
-                } else {
-                    findFriendsOverAge(minAge, setFriends);
-                    setName('');
-                    setAge(0);
-                }
-            });
-        } else if (!databaseReady) {
-            setError("Database not ready");
-        }
+        if (!databaseReady) return;
+
+        addFriend({ name, age }, (errorMsg) => {
+            if (errorMsg) {
+                setError(errorMsg);
+            } else {
+                fetchAllFriends();
+                setName('');
+                setAge(0);
+            }
+        });
     };
 
     const handleGetFriend = () => {
-        if (databaseReady) {
-            setLoading(true);
-            getFriend(idToGet, (friend, err?: Error) => {
-                setLoading(false);
-                if (err) {
-                    setError(err.message);
-                } else if (friend) {
-                    setFriends([friend]);
-                } else {
-                    setFriends([]);
-                }
-            });
-        } else {
-            setError("Database not ready");
-        }
+        if (!databaseReady) return;
+
+        getFriend(id, (friend, errorMsg) => {
+            if (errorMsg) {
+                setError(errorMsg);
+            } else if (friend) {
+                setFriends([friend]);
+            } else {
+                setFriends([]);
+            }
+        });
     };
 
     const handleUpdateFriend = () => {
-        if (databaseReady && idToGet && name && age) {
-            setLoading(true);
-            updateFriend({ id: idToGet, name, age }, (err?: Error) => {
-                setLoading(false);
-                if (err) {
-                    setError(err.message);
-                } else {
-                    findFriendsOverAge(minAge, setFriends);
-                }
-            });
-        } else if (!databaseReady) {
-            setError("Database not ready");
-        }
+        if (!databaseReady) return;
+
+        updateFriend({ id, name, age }, (errorMsg) => {
+            if (errorMsg) {
+                setError(errorMsg);
+            } else {
+                fetchAllFriends();
+            }
+        });
     };
 
     const handleDeleteFriend = () => {
-        if (databaseReady) {
-            setLoading(true);
-            deleteFriend(idToDelete, (err?: Error) => {
-                setLoading(false);
-                if (err) {
-                    setError(err.message);
-                } else {
-                    findFriendsOverAge(minAge, setFriends);
-                    setIdToDelete(0);
-                }
-            });
-        } else {
-            setError("Database not ready");
-        }
-    };
+        if (!databaseReady) return;
 
-    const handleSearchByAge = () => {
-        if (databaseReady) {
-            setLoading(true);
-            findFriendsOverAge(minAge, (foundFriends: Friend[], err?: Error) => {
-                setLoading(false);
-                if (err) {
-                    setError(err.message);
-                } else {
-                    setFriends(foundFriends);
-                }
-            });
-        } else {
-            setError("Database not ready");
-        }
+        deleteFriend(id, (errorMsg) => {
+            if (errorMsg) {
+                setError(errorMsg);
+            } else {
+                fetchAllFriends();
+            }
+        });
     };
 
     if (!databaseReady) {
-        return <div style={{ padding: '20px' }}>Database not ready</div>;
+        return <div>Database not ready</div>;
     }
 
     return (
-        <div style={{ padding: '20px' }}>
+        <div>
             <h1>IndexedDB React Demo</h1>
             {error && <div style={{ color: 'red' }}>{error}</div>}
-            {loading && <div>Loading...</div>}
 
-            {/* ... (Rest of your JSX remains the same) ... */}
+            <div>
+                <label>Name:</label>
+                <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
+                <label>Age:</label>
+                <input type="number" value={age} onChange={(e) => setAge(Number(e.target.value))} />
+                <button onClick={handleAddFriend}>Add Friend</button>
+            </div>
+
+            <div>
+                <label>ID:</label>
+                <input type="number" value={id} onChange={(e) => setId(Number(e.target.value))} />
+                <button onClick={handleGetFriend}>Get Friend</button>
+                <button onClick={handleUpdateFriend}>Update Friend</button>
+                <button onClick={handleDeleteFriend}>Delete Friend</button>
+            </div>
 
             <div>
                 <h2>Friends List</h2>
